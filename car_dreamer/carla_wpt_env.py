@@ -50,7 +50,6 @@ class CarlaWptEnv(CarlaBaseEnv):
     def on_step(self) -> None:
         self.waypoints, self.planner_stats = self.get_ego_planner().run_step()
         self.num_completed = self.planner_stats["num_completed"]
-        self.sum_travel_distance += self.planner_stats["travel_distance"]
 
     def reward(self):
         reward_scales = self._config.reward.scales
