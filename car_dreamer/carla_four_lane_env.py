@@ -20,7 +20,7 @@ class CarlaFourLaneEnv(CarlaWptEnv):
     """
 
     def on_reset(self) -> None:
-        self.ego_src = self._config.lane_start_points[np.random.randint(0, len(self._config.lane_start_points) - 1)]
+        self.ego_src = self._config.lane_start_points[np.random.randint(0, len(self._config.lane_start_points))]
         ego_transform = carla.Transform(
             carla.Location(x=self.ego_src[0], y=self.ego_src[1], z=self.ego_src[2]),
             carla.Rotation(yaw=-90),

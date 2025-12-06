@@ -86,7 +86,7 @@ docs/_build/
 # PyBuilder
 target/
 
-# Jupyter Notebook
+*.ckpt
 .ipynb_checkpoints
 
 # pyenv

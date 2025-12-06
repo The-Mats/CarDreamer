@@ -88,3 +88,5 @@ After running for some episodes, you can visualize the evaluation results using 
 ```bash
 python dreamerv3/eval_stats.py --logdir ./logdir/eval_carla_four_lane
 ```
+
+`Note:` In the latest implementation, we use `destination_reached` metric to compute the success rates. The paper reported success rates computed by thresholding distances. The results can slightly vary with the latest codebase.

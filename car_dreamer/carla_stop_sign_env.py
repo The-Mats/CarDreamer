@@ -19,7 +19,7 @@ class CarlaStopSignEnv(CarlaWptFixedEnv):
 
     def on_reset(self) -> None:
         np.random.seed(time.time())
-        random_index = np.random.randint(0, len(self._config.lane_start_point) - 1)
+        random_index = np.random.randint(0, len(self._config.lane_start_point))
         self.ego_src = self._config.lane_start_point[random_index]
         ego_transform = carla.Transform(carla.Location(*self.ego_src[:3]), carla.Rotation(yaw=self.ego_src[3]))
         self.ego = self._world.spawn_actor(transform=ego_transform)

@@ -21,7 +21,7 @@ class CarlaFollowEnv(CarlaWptEnv):
         self.random_num = 0
 
         if self._config.direction == FollowDirections.RANDOM.value:
-            self.random_num = random.randint(0, max_num_of_directions - 1)  # random path
+            self.random_num = random.randint(0, max_num_of_directions)  # random path
         elif 0 <= self._config.direction < max_num_of_directions:
             self.random_num = self._config.direction  # set path
 
