@@ -313,6 +313,8 @@ class BirdeyeRenderer:
 
     def _render_stop_signs(self, **env_state):
         stop_sign_state = env_state.get("stop_sign_state")
+        if stop_sign_state is None:
+            return
         stop_signs = self._world_manager.carla_actors("stop")
         for stop_sign in stop_signs:
             if stop_sign.id in stop_sign_state:
