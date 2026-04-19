@@ -2,6 +2,7 @@ env:
   eval: False
 
   world:
+    carla_host: "carla"
     carla_port: 2000
     town: "Town04" # which town map to use
     actor_active_distance: 100

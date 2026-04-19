@@ -53,7 +53,8 @@ def main(argv=None):
         [
             embodied.logger.TerminalOutput(),
             embodied.logger.JSONLOutput(logdir, "metrics.jsonl"),
-            embodied.logger.TensorBoardOutput(logdir),
+            #embodied.logger.TensorBoardOutput(logdir),
+            embodied.logger.WandBOutput(logdir.name, config)
         ],
     )
 

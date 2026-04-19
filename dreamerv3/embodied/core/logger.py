@@ -225,8 +225,8 @@ class WandBOutput:
 
         wandb.init(
             name=run_name,
-            entity="worldmodel2025",
-            project="message",
+            entity="LatentLab",
+            project="DreamJEPA",
             config=dict(config),
             resume=resume,
         )
