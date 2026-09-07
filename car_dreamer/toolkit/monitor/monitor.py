@@ -1,4 +1,3 @@
-import atexit
 import base64
 import json
 import queue
@@ -14,9 +13,16 @@ class EnvMonitorBase:
         self._config = config
         self._obs_queue = queue.Queue()
         self._info_queue = queue.Queue()
-        self._thread = threading.Thread(target=self._run_server)
-        self._thread.start()
-        atexit.register(self.stop)
+        self._thread = None
+        # Only run the display server when the display is actually enabled, and
+        # only as a daemon. Previously this started unconditionally on a
+        # non-daemon thread, so any process that built an env acquired a Flask
+        # server on carla_port+7000 that outlived training and blocked
+        # interpreter exit -- and a second env (e.g. one built just to read
+        # observation specs) collided on the same port.
+        if config.display.enable:
+            self._thread = threading.Thread(target=self._run_server, daemon=True)
+            self._thread.start()
 
     def _run_server(self):
         app = Flask(__name__, template_folder="templates")
@@ -77,8 +83,12 @@ class EnvMonitorBase:
         return {"images": self._render_images(obs), "info": self._render_info(info)}
 
     def stop(self):
+        # Bounded join: Flask's development server has no external shutdown
+        # hook, so an unbounded join here hung every caller of stop(). The
+        # thread is a daemon, so the interpreter reclaims it on exit.
         if self._thread and self._thread.is_alive():
-            self._thread.join()
+            self._thread.join(timeout=1.0)
+        self._thread = None
 
     def __del__(self):
         self.stop()
