@@ -88,6 +88,10 @@ class WorldManager:
         # This prevents some synchronization bugs
         time.sleep(1)
 
+        # Drop the step-wise cache: reset() restores _time_step to 0, so the
+        # cache's step check cannot tell that actors were respawned.
+        self._cache = {"step": self._time_step}
+
     def step(self) -> None:
         self._time_step += 1
         self._world.tick()
