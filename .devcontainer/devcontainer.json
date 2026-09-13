@@ -1,0 +1,51 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.238.0/containers/ubuntu
+{
+	"name": "HarmonyCarDreamer-dev",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+			// choose valid combination from https://hub.docker.com/r/nvidia/cuda/tags
+			"VARIANT": "ubuntu22.04",
+			"CUDA_VERSION": "12.4.1",
+			"USERNAME": "vscode",
+			"USER_UID": "${localEnv:UID:1000}",
+			"USER_GID": "${localEnv:GID:1000}"
+		}
+	},
+	"runArgs": [
+		"--gpus",
+		"all",
+		"--shm-size=32gb",
+		"--cpus",
+		"16",
+		"--memory",
+		"128GB"
+	],
+	"containerEnv": {
+		// CARLA_ROOT points at the existing extracted CARLA 0.9.15 package
+		// (mounted below), matching the main README's setup instructions.
+		"CARLA_ROOT": "/opt/carla",
+		"PYTHONPATH": "/opt/carla/PythonAPI/carla:${containerEnv:PYTHONPATH}"
+	},
+	"extensions": [
+		"ms-python.python",
+		"ms-python.vscode-pylance",
+		"github.copilot",
+		"ms-toolsai.jupyter"
+	],
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [9000],
+	// Run as the non-root user created in the Dockerfile (sudo is passwordless).
+	// updateRemoteUserUID (default on Linux) syncs its UID/GID with the host user.
+	"remoteUser": "vscode",
+	// car_dreamer itself is installed manually after build - see .devcontainer/README.md.
+	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+	"workspaceFolder": "/workspace",
+	"mounts": [
+		// Reuses the CARLA 0.9.15 package already extracted on the host
+		// (originally downloaded for the DreamJEPA project) instead of
+		// re-downloading the ~15-20GB release tarball.
+		"source=/home/mkurz/carla-sim/CARLA_0.9.15,target=/opt/carla,type=bind,consistency=cached"
+	]
+}
