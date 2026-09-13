@@ -162,6 +162,13 @@ class CarlaBaseEnv(gym.Env):
 
         return (self.obs, reward, is_terminal, info)
 
+    def close(self):
+        """Tear down sensors and actors. gym.Env.close() is otherwise a no-op,
+        so an abandoned env keeps its sensors listening for the whole process."""
+        self._monitor.stop()
+        self._observer.destroy()
+        self._world.destroy()
+
     def is_collision(self):
         """
         Check if the ego vehicle is in collision.

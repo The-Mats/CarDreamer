@@ -58,7 +58,12 @@ class SensorHandler(BaseHandler):
     def destroy(self) -> None:
         self._data = None
         if self._sensor is not None:
+            # stop() before destroy(): a sensor destroyed while still listening
+            # keeps delivering into a stale actor map, which throws
+            # std::out_of_range on a CARLA callback thread and aborts.
+            self._sensor.stop()
             self._sensor.destroy()
+            self._sensor = None
 
     def reset(self, ego: carla.Actor) -> None:
         self._sensor = self._world.spawn_unmanaged_actor(self._transform, self._blueprint, attach_to=ego)

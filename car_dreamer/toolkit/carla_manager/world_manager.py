@@ -8,6 +8,12 @@ import numpy as np
 from .utils import ActorActionDict, ActorPolygonDict, ActorTransformDict, Command
 from .vehicle_manager import VehicleManager
 
+# Towns this process has already loaded. load_world() wipes every actor on the
+# server, which is the only thing that clears actors leaked by an earlier
+# process -- so the first manager must still do it. Later managers in the same
+# process attach instead, or they would wipe the env that is already running.
+_LOADED_TOWNS: set = set()
+
 
 def cached_step_wise(func):
     @wraps(func)
@@ -37,9 +43,15 @@ class WorldManager:
         print(f"[CARLA] Connecting to Carla server at {self._config.carla_port}...")
         self._client = carla.Client(self._config.carla_host, self._config.carla_port)
         self._client.set_timeout(20.0)
-        self._world = self._client.load_world(self._config.town)
+        town = self._config.town
+        self._world = self._client.get_world()
+        if town not in _LOADED_TOWNS or town not in self._world.get_map().name:
+            self._world = self._client.load_world(town)
+            _LOADED_TOWNS.add(town)
+            print(f"[CARLA] Map {town} loaded")
+        else:
+            print(f"[CARLA] Map {town} already loaded, reusing")
         self._map = self._world.get_map()
-        print(f"[CARLA] Map {self._config.town} loaded")
 
         settings = self._world.get_settings()
         settings.synchronous_mode = False
@@ -91,6 +103,11 @@ class WorldManager:
         # Drop the step-wise cache: reset() restores _time_step to 0, so the
         # cache's step check cannot tell that actors were respawned.
         self._cache = {"step": self._time_step}
+
+    def destroy(self) -> None:
+        """Destroy every actor spawned by this manager, without respawning."""
+        self._client.apply_batch_sync([carla.command.DestroyActor(id) for id in self.actor_dict])
+        self.actor_dict = {}
 
     def step(self) -> None:
         self._time_step += 1
@@ -160,12 +177,14 @@ class WorldManager:
         self,
         transform: Union[carla.Transform, None] = None,
         blueprint: Union[carla.ActorBlueprint, None] = None,
-        max_try_time: int = None,
+        max_try_time: int = 300,
     ) -> carla.Actor:
         """
         Equivalent to ``try_spawn_actor(transform, blueprint)``, but retry if failed.
 
-        :param max_try_time: if None, try until success, else raise an exception after ``max_try_time``.
+        :param max_try_time: raise after this many attempts (0.1s apart), so a
+            permanently blocked spawn point fails in ~30s instead of hanging.
+            None restores the old behaviour of retrying forever.
 
         .. seealso:: :py:meth:`try_spawn_actor`
         """
@@ -177,7 +196,12 @@ class WorldManager:
             actor = self.try_spawn_actor(transform, blueprint)
             try_time += 1
         if actor is None:
-            raise Exception("Failed to spawn actor")
+            raise Exception(
+                f"Failed to spawn actor after {try_time} attempts at {transform}. "
+                f"The spawn point is occupied; the world holds "
+                f"{len(self._world.get_actors())} actors, which usually means "
+                f"actors leaked from an earlier run. Restart the CARLA server."
+            )
         return actor
 
     def spawn_unmanaged_actor(self, transform: carla.Transform, blueprint: carla.ActorBlueprint, **kwargs) -> carla.Actor:
