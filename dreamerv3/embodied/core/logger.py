@@ -27,7 +27,10 @@ class Logger:
             name = f"{prefix}/{name}" if prefix else name
             value = np.asarray(value)
             if len(value.shape) not in (0, 1, 2, 3, 4):
-                raise ValueError(f"Shape {value.shape} for name '{name}' cannot be " "interpreted as scalar, histogram, image, or video.")
+                raise ValueError(
+                    f"Shape {value.shape} for name '{name}' cannot be "
+                    "interpreted as scalar, histogram, image, or video."
+                )
             self._metrics.append((step, name, value))
 
     def scalar(self, name, value):
@@ -100,7 +103,9 @@ class TerminalOutput:
                 self._console.rule(f"[green bold]{self._name} (Step {step})")
             else:
                 self._console.rule(f"[green bold]Step {step}")
-            self._console.print(" [blue]/[/blue] ".join(f"{k} {v}" for k, v in formatted.items()))
+            self._console.print(
+                " [blue]/[/blue] ".join(f"{k} {v}" for k, v in formatted.items())
+            )
             print("")
         else:
             message = " / ".join(f"{k} {v}" for k, v in formatted.items())
@@ -141,7 +146,12 @@ class JSONLOutput(AsyncOutput):
         for step, name, value in summaries:
             if len(value.shape) == 0 and self._pattern.search(name):
                 bystep[step][name] = float(value)
-        lines = "".join([json.dumps({"step": step, **scalars}) + "\n" for step, scalars in bystep.items()])
+        lines = "".join(
+            [
+                json.dumps({"step": step, **scalars}) + "\n"
+                for step, scalars in bystep.items()
+            ]
+        )
         with (self._logdir / self._filename).open("a") as f:
             f.write(lines)
 
@@ -170,7 +180,9 @@ class TensorBoardOutput(AsyncOutput):
             self._promise = self._checker.submit(self._check)
         if not self._writer or reset:
             print("Creating new TensorBoard event file writer.")
-            self._writer = tf.summary.create_file_writer(self._logdir, flush_millis=1000, max_queue=10000)
+            self._writer = tf.summary.create_file_writer(
+                self._logdir, flush_millis=1000, max_queue=10000
+            )
         self._writer.set_as_default()
         for step, name, value in summaries:
             try:
@@ -225,8 +237,8 @@ class WandBOutput:
 
         wandb.init(
             name=run_name,
-            entity="worldmodel2025",
-            project="message",
+            entity="LatentLab",
+            project="DreamJEPA",
             config=dict(config),
             resume=resume,
         )

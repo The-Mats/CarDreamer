@@ -34,7 +34,9 @@ def wrap_env(env, config):
 
 
 def main(argv=None):
-    model_configs = yaml.YAML(typ="safe").load((embodied.Path(__file__).parent / "dreamerv3.yaml").read())
+    model_configs = yaml.YAML(typ="safe").load(
+        (embodied.Path(__file__).parent / "dreamerv3.yaml").read()
+    )
     config = embodied.Config({"dreamerv3": model_configs["defaults"]})
     config = config.update({"dreamerv3": model_configs["small"]})
 
@@ -54,6 +56,7 @@ def main(argv=None):
             embodied.logger.TerminalOutput(),
             embodied.logger.JSONLOutput(logdir, "metrics.jsonl"),
             embodied.logger.TensorBoardOutput(logdir),
+            embodied.logger.WandBOutput(logdir.name, config),
         ],
     )
 
@@ -70,7 +73,9 @@ def main(argv=None):
     print(f"[Train] Config saved to {logdir / config_filename}")
 
     agent = dreamerv3.Agent(env.obs_space, env.act_space, step, dreamerv3_config)
-    replay = embodied.replay.Uniform(dreamerv3_config.batch_length, dreamerv3_config.replay_size, logdir / "replay")
+    replay = embodied.replay.Uniform(
+        dreamerv3_config.batch_length, dreamerv3_config.replay_size, logdir / "replay"
+    )
     args = embodied.Config(
         **dreamerv3_config.run,
         logdir=dreamerv3_config.logdir,

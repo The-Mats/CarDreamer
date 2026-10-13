@@ -26,7 +26,8 @@
 		// CARLA_ROOT points at the existing extracted CARLA 0.9.15 package
 		// (mounted below), matching the main README's setup instructions.
 		"CARLA_ROOT": "/opt/carla",
-		"PYTHONPATH": "/opt/carla/PythonAPI/carla:${containerEnv:PYTHONPATH}"
+		// /workspace is needed because dreamerv3/train.py imports its own package as `dreamerv3.*`.
+		"PYTHONPATH": "/workspace:/opt/carla/PythonAPI/carla"
 	},
 	"extensions": [
 		"ms-python.python",

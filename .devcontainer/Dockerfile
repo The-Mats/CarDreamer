@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     psmisc \
     procps \
     libvulkan1 \
+    vulkan-tools \
     libsdl2-2.0-0 \
     libsm6 \
     libgl1 \
@@ -43,12 +44,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -RenderOffScreen mode fails to start. The manifest just references the driver
 # lib by name; the actual .so always comes from the host driver at container
 # start, so this is safe regardless of which driver version is running.
+# It must point at libEGL_nvidia, not libGLX_nvidia: without an X server the GLX
+# ICD fails vkCreateInstance (ERROR_INCOMPATIBLE_DRIVER) and CARLA exits silently.
 RUN mkdir -p /usr/share/vulkan/icd.d && \
     printf '%s\n' \
     '{' \
     '    "file_format_version" : "1.0.1",' \
     '    "ICD": {' \
-    '        "library_path": "libGLX_nvidia.so.0",' \
+    '        "library_path": "libEGL_nvidia.so.0",' \
     '        "api_version" : "1.4.329"' \
     '    }' \
     '}' > /usr/share/vulkan/icd.d/nvidia_icd.json

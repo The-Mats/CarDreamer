@@ -10,11 +10,37 @@ fi
 CARLA_PORT=$1
 GPU_DEVICE=$2
 LOG_FILE="log_${CARLA_PORT}.log"
-CARLA_SERVER_COMMAND="$CARLA_ROOT/CarlaUE4.sh -RenderOffScreen -carla-port=$CARLA_PORT -benchmark -fps=10"
+# Keep everything on the one card named by $GPU_DEVICE (an nvidia-smi index).
+# CUDA_DEVICE_ORDER makes CUDA number its devices like nvidia-smi does.
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+# CARLA renders through Vulkan, which CUDA_VISIBLE_DEVICES does not filter, and
+# Vulkan's device order is not PCI order - so -graphicsadapter needs Vulkan's own
+# index for this card. Resolve it by matching PCI bus numbers (nvidia-smi reports
+# the bus in hex, vulkaninfo in decimal).
+TARGET_BUS=$((16#$(nvidia-smi --query-gpu=pci.bus_id -i "$GPU_DEVICE" --format=csv,noheader | cut -d: -f2)))
+VULKAN_ADAPTER=$(vulkaninfo 2>/dev/null | awk -v t="$TARGET_BUS" '
+    /^GPU[0-9]+:/ { gsub(/[^0-9]/, "", $1); gpu = $1 }
+    /pciBus/      { if ($3 + 0 == t) { print gpu; exit } }')
+if [ -z "$VULKAN_ADAPTER" ]; then
+    echo "WARNING: could not resolve Vulkan adapter for GPU $GPU_DEVICE (is vulkan-tools installed?); falling back to $GPU_DEVICE" >&2
+    VULKAN_ADAPTER=$GPU_DEVICE
+fi
+
+CARLA_SERVER_COMMAND="$CARLA_ROOT/CarlaUE4.sh -RenderOffScreen -graphicsadapter=$VULKAN_ADAPTER -carla-port=$CARLA_PORT -benchmark -fps=10"
+# Pattern used to detect a running CARLA; derived so it stays in sync with the command above.
+CARLA_PATTERN="CarlaUE4.sh -RenderOffScreen -graphicsadapter=$VULKAN_ADAPTER -carla-port=$CARLA_PORT -benchmark -fps=10"
 TRAINING_SCRIPT="dreamerv3/train.py"
-COMMON_PARAMS="--env.world.carla_port $CARLA_PORT --dreamerv3.jax.policy_devices $GPU_DEVICE --dreamerv3.jax.train_devices $GPU_DEVICE"
+# CUDA_VISIBLE_DEVICES hides the other cards from JAX, which would otherwise
+# reserve a few hundred MB on each; the one visible card is then JAX's device 0.
+COMMON_PARAMS="--env.world.carla_port $CARLA_PORT --dreamerv3.jax.policy_devices 0 --dreamerv3.jax.train_devices 0"
 ADDITIONAL_PARAMS="${@:3}"  # Capture all additional parameters passed to the script
-TRAINING_COMMAND="python -u $TRAINING_SCRIPT $COMMON_PARAMS $ADDITIONAL_PARAMS"
+TRAINING_COMMAND="env CUDA_VISIBLE_DEVICES=$GPU_DEVICE python -u $TRAINING_SCRIPT $COMMON_PARAMS $ADDITIONAL_PARAMS"
+# Give up after this many consecutive crashes. A crash only counts as consecutive
+# if training died within MIN_UPTIME seconds of starting; longer runs reset the count.
+MAX_RESTARTS=${MAX_RESTARTS:-5}
+MIN_UPTIME=${MIN_UPTIME:-600}
+CRASH_COUNT=0
 
 # Clear log file before starting
 > $LOG_FILE
@@ -27,7 +53,7 @@ log_with_timestamp() {
 # Function to start or restart CARLA
 launch_carla() {
     # Check if CARLA is running
-    if ! pgrep -f "CarlaUE4.sh -RenderOffScreen -carla-port=$CARLA_PORT -benchmark -fps=10" > /dev/null; then
+    if ! pgrep -f "$CARLA_PATTERN" > /dev/null; then
         log_with_timestamp "CARLA server is not running on port $CARLA_PORT. Starting or restarting..."
         # Kill any existing CARLA processes on the same port
         fuser -k ${CARLA_PORT}/tcp
@@ -48,6 +74,7 @@ start_training() {
     # Start the training script
     $TRAINING_COMMAND >> $LOG_FILE 2>&1 &
     TRAINING_PID=$!
+    TRAINING_START=$(date +%s)
     # Log the information about the log file
     log_with_timestamp "Training session started successfully. Logs are being written to: $LOG_FILE"
     echo -e "\033[1;32mTraining session started successfully. Logs are being written to: $LOG_FILE\033[0m"
@@ -75,7 +102,17 @@ start_training
 while true; do
     # Check if the training script is still running
     if ! pgrep -f "$TRAINING_SCRIPT" > /dev/null; then
-        log_with_timestamp "Training script crashed on port $CARLA_PORT. Restarting..."
+        if (( $(date +%s) - TRAINING_START < MIN_UPTIME )); then
+            CRASH_COUNT=$((CRASH_COUNT + 1))
+        else
+            CRASH_COUNT=1
+        fi
+        if (( CRASH_COUNT >= MAX_RESTARTS )); then
+            log_with_timestamp "Training script crashed $CRASH_COUNT times in a row on port $CARLA_PORT. Giving up."
+            echo -e "\033[1;31mTraining crashed $CRASH_COUNT times in a row. Giving up - check $LOG_FILE for the error.\033[0m"
+            cleanup
+        fi
+        log_with_timestamp "Training script crashed on port $CARLA_PORT ($CRASH_COUNT/$MAX_RESTARTS). Restarting..."
         start_training
     fi
     # Check if CARLA server needs to be restarted

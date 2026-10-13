@@ -1,3 +1,9 @@
+# CarDreamer DreamerV3 Baseline
+
+This branch is used to get a baseline for CarDreamer on the CAU Ploen GPU Servers. This gives an overview over the performance and runtime on our hardware. To run on the CAU Servers follow [this README](.devcontainer/README.md).
+
+CarDreamer README:
+
 # 🌍 Learn to Drive in "Dreams": CarDreamer 🚗
 
 <div align="center">
