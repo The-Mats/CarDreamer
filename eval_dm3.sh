@@ -11,11 +11,32 @@ CARLA_PORT=$1
 GPU_DEVICE=$2
 CHECKPOINT_PATH=$3
 LOG_FILE="eval_log_${CARLA_PORT}.log"
-CARLA_SERVER_COMMAND="$CARLA_ROOT/CarlaUE4.sh -RenderOffScreen -carla-port=$CARLA_PORT -benchmark -fps=10"
+# Keep everything on the one card named by $GPU_DEVICE (an nvidia-smi index).
+# CUDA_DEVICE_ORDER makes CUDA number its devices like nvidia-smi does.
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+
+# CARLA renders through Vulkan, which CUDA_VISIBLE_DEVICES does not filter, and
+# Vulkan's device order is not PCI order - so -graphicsadapter needs Vulkan's own
+# index for this card. Resolve it by matching PCI bus numbers (nvidia-smi reports
+# the bus in hex, vulkaninfo in decimal).
+TARGET_BUS=$((16#$(nvidia-smi --query-gpu=pci.bus_id -i "$GPU_DEVICE" --format=csv,noheader | cut -d: -f2)))
+VULKAN_ADAPTER=$(vulkaninfo 2>/dev/null | awk -v t="$TARGET_BUS" '
+    /^GPU[0-9]+:/ { gsub(/[^0-9]/, "", $1); gpu = $1 }
+    /pciBus/      { if ($3 + 0 == t) { print gpu; exit } }')
+if [ -z "$VULKAN_ADAPTER" ]; then
+    echo "WARNING: could not resolve Vulkan adapter for GPU $GPU_DEVICE (is vulkan-tools installed?); falling back to $GPU_DEVICE" >&2
+    VULKAN_ADAPTER=$GPU_DEVICE
+fi
+
+CARLA_SERVER_COMMAND="$CARLA_ROOT/CarlaUE4.sh -RenderOffScreen -graphicsadapter=$VULKAN_ADAPTER -carla-port=$CARLA_PORT -benchmark -fps=10"
+# Pattern used to detect a running CARLA; derived so it stays in sync with the command above.
+CARLA_PATTERN="CarlaUE4.sh -RenderOffScreen -graphicsadapter=$VULKAN_ADAPTER -carla-port=$CARLA_PORT -benchmark -fps=10"
 EVAL_SCRIPT="dreamerv3/eval.py"
-COMMON_PARAMS="--env.world.carla_port $CARLA_PORT --dreamerv3.jax.policy_devices $GPU_DEVICE --dreamerv3.run.from_checkpoint $CHECKPOINT_PATH"
+# CUDA_VISIBLE_DEVICES hides the other cards from JAX, which would otherwise
+# reserve a few hundred MB on each; the one visible card is then JAX's device 0.
+COMMON_PARAMS="--env.world.carla_port $CARLA_PORT --dreamerv3.jax.policy_devices 0 --dreamerv3.run.from_checkpoint $CHECKPOINT_PATH"
 ADDITIONAL_PARAMS="${@:4}"  # Capture all additional parameters passed to the script
-EVAL_COMMAND="python -u $EVAL_SCRIPT $COMMON_PARAMS $ADDITIONAL_PARAMS"
+EVAL_COMMAND="env CUDA_VISIBLE_DEVICES=$GPU_DEVICE python -u $EVAL_SCRIPT $COMMON_PARAMS $ADDITIONAL_PARAMS"
 
 # Clear log file before starting
 > $LOG_FILE
@@ -28,7 +49,7 @@ log_with_timestamp() {
 # Function to start or restart CARLA
 launch_carla() {
     # Check if CARLA is running
-    if ! pgrep -f "CarlaUE4.sh -RenderOffScreen -carla-port=$CARLA_PORT -benchmark -fps=10" > /dev/null; then
+    if ! pgrep -f "$CARLA_PATTERN" > /dev/null; then
         log_with_timestamp "CARLA server is not running on port $CARLA_PORT. Starting or restarting..."
         # Kill any existing CARLA processes on the same port
         fuser -k ${CARLA_PORT}/tcp

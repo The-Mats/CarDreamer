@@ -41,6 +41,9 @@ TRAINING_COMMAND="env CUDA_VISIBLE_DEVICES=$GPU_DEVICE python -u $TRAINING_SCRIP
 MAX_RESTARTS=${MAX_RESTARTS:-5}
 MIN_UPTIME=${MIN_UPTIME:-600}
 CRASH_COUNT=0
+# Training writes its exit status here, so a normal finish (status 0, e.g. after
+# dreamerv3.run.steps is reached) is not mistaken for a crash and relaunched.
+STATUS_FILE=".train_exit_${CARLA_PORT}"
 
 # Clear log file before starting
 > $LOG_FILE
@@ -71,10 +74,18 @@ launch_carla() {
 # Function to start the training script
 start_training() {
     launch_carla
-    # Start the training script
-    $TRAINING_COMMAND >> $LOG_FILE 2>&1 &
+    # Start the training script, recording its exit status when it stops
+    rm -f "$STATUS_FILE"
+    ( $TRAINING_COMMAND >> $LOG_FILE 2>&1; echo $? > "$STATUS_FILE" ) &
     TRAINING_PID=$!
     TRAINING_START=$(date +%s)
+    # Give python a moment to appear, so the watchdog below does not mistake
+    # process startup for an immediate crash.
+    for _ in $(seq 1 30); do
+        pgrep -f "$TRAINING_SCRIPT" > /dev/null && break
+        [ -f "$STATUS_FILE" ] && break
+        sleep 1
+    done
     # Log the information about the log file
     log_with_timestamp "Training session started successfully. Logs are being written to: $LOG_FILE"
     echo -e "\033[1;32mTraining session started successfully. Logs are being written to: $LOG_FILE\033[0m"
@@ -85,14 +96,23 @@ cleanup() {
     log_with_timestamp "Cleaning up and exiting..."
     # Kill CARLA process
     fuser -k ${CARLA_PORT}/tcp
-    # Kill the specific training process using its PID
+    # Kill training: $TRAINING_PID is the subshell that records the exit status,
+    # so python is its child and has to be signalled too - otherwise it is
+    # orphaned and keeps holding open files (on NFS that blocks deleting logdir).
+    pkill -TERM -P $TRAINING_PID >/dev/null 2>&1
     kill -TERM $TRAINING_PID >/dev/null 2>&1
     wait $TRAINING_PID >/dev/null 2>&1
+    # Force anything of ours that ignored SIGTERM. Scoped to this run's own
+    # children on purpose: a pattern match on the script name would also kill
+    # parallel runs on other GPUs.
+    sleep 2
+    pkill -KILL -P $TRAINING_PID >/dev/null 2>&1
+    kill -KILL $TRAINING_PID >/dev/null 2>&1
     exit
 }
 
-# Trap EXIT signal to call the cleanup function
-trap cleanup SIGINT
+# Clean up on Ctrl+C and on `kill` (SIGTERM), so neither leaves CARLA or python behind
+trap cleanup SIGINT SIGTERM
 
 # Initial start
 log_with_timestamp "Starting training on port $CARLA_PORT..."
@@ -102,6 +122,13 @@ start_training
 while true; do
     # Check if the training script is still running
     if ! pgrep -f "$TRAINING_SCRIPT" > /dev/null; then
+        # Exit status 0 means training finished on its own (e.g. it reached
+        # dreamerv3.run.steps); stop instead of relaunching a completed run.
+        if [ "$(cat "$STATUS_FILE" 2>/dev/null)" = "0" ]; then
+            log_with_timestamp "Training finished normally on port $CARLA_PORT. Exiting."
+            echo -e "\033[1;32mTraining finished normally. Logs: $LOG_FILE\033[0m"
+            cleanup
+        fi
         if (( $(date +%s) - TRAINING_START < MIN_UPTIME )); then
             CRASH_COUNT=$((CRASH_COUNT + 1))
         else
